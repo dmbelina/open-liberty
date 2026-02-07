@@ -169,6 +169,12 @@ public class WIMUserRegistry implements FederationRegistry, UserRegistry {
                      */
                     throw excp;
                 }
+                // Check if the cause is a PasswordExpiredException or UserRevokedException
+                // These SAF-specific exceptions need to propagate to the authentication layer
+                if (t != null && (t instanceof com.ibm.ws.security.registry.PasswordExpiredException ||
+                                  t instanceof com.ibm.ws.security.registry.UserRevokedException)) {
+                    throw (RegistryException) t;
+                }
                 // New:: Change in Input/Output mapping
                 // throw (RegistryException) excp;
                 return null;
