@@ -1148,6 +1148,11 @@ public class JPAPersistenceManagerImpl extends AbstractPersistenceManager implem
      *
      * Set the final batchStatus, exitStatus, and endTime for the given jobExecutionId.
      *
+     * Acquire locks in the same order:
+     * 1. JobInstance (via PESSIMISTIC_WRITE on JobExecution query)
+     * 2. JobExecution
+     * 
+     * To match the order used in createPartitionStepExecutionAndNewThreadInstance().
      */
     public JobExecution updateJobExecutionAndInstanceFinalStatus(PersistenceServiceUnit psu,
                                                                  final long jobExecutionId,
@@ -1159,7 +1164,18 @@ public class JPAPersistenceManagerImpl extends AbstractPersistenceManager implem
             return new TranRequest<JobExecution>(em) {
                 @Override
                 public JobExecution call() {
-                    JobExecutionEntity exec = entityMgr.find(JobExecutionEntity.class, jobExecutionId);
+                    // Use PESSIMISTIC_WRITE lock to ensure consistent lock ordering with partition creation.
+                    // This prevents deadlocks by acquiring locks in the same order as
+                    // createPartitionStepExecutionAndNewThreadInstance():
+                    // 1. First, the query will lock the JobInstance (via the join)
+                    // 2. Then, it locks the JobExecution
+                    JobExecutionEntity exec = entityMgr.createQuery(
+                            "SELECT j FROM JobExecutionEntity j WHERE j.jobExecId = :id",
+                            JobExecutionEntity.class)
+                            .setParameter("id", jobExecutionId)
+                            .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                            .getSingleResult();
+                    
                     if (exec == null) {
                         throw new NoSuchJobExecutionException("No job execution found for id = " + jobExecutionId);
                     }
